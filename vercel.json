@@ -26,10 +26,5 @@
     "COOKIE_DOMAIN": "@cookie_domain",
     "BACKEND_URL": "@backend_url",
     "FRONTEND_URL": "@frontend_url"
-  },
-  "functions": {
-    "app.js": {
-      "maxDuration": 30
-    }
   }
 }
