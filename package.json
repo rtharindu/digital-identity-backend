@@ -1,0 +1,39 @@
+{
+  "name": "digital-identity-backend",
+  "version": "1.0.0",
+  "description": "Backend for Digital Identity Hub Project",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "validate": "node scripts/validateEnv.js",
+    "prestart": "npm run validate"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "digital-identity"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@simplewebauthn/server": "^9.0.3",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.0",
+    "mongodb": "^5.9.2",
+    "mongoose": "^7.6.8",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "ua-parser-js": "^2.0.4",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
