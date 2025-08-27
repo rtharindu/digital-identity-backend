@@ -11,20 +11,5 @@
       "src": "/(.*)",
       "dest": "/app.js"
     }
-  ],
-  "env": {
-    "MONGO_URI": "@mongo_uri",
-    "JWT_SECRET": "@jwt_secret",
-    "SESSION_SECRET": "@session_secret",
-    "GOOGLE_CLIENT_ID": "@google_client_id",
-    "GOOGLE_CLIENT_SECRET": "@google_client_secret",
-    "GOOGLE_CALLBACK_URL": "@google_callback_url",
-    "RP_ID": "@rp_id",
-    "RP_ORIGIN": "@rp_origin",
-    "ALLOWED_ORIGINS": "@allowed_origins",
-    "COOKIE_SECURE": "@cookie_secure",
-    "COOKIE_DOMAIN": "@cookie_domain",
-    "BACKEND_URL": "@backend_url",
-    "FRONTEND_URL": "@frontend_url"
-  }
+  ]
 }
