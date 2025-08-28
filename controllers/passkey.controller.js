@@ -15,12 +15,17 @@ const getClientIP = (req) => {
     || 'Unknown IP';
 };
 
+// Temporary storage for session data (works better with serverless)
+const sessionStore = new Map();
+
 // Helper function to get rpID and origin
-const getRPInfo = () => ({
-  rpID: config.RP_ID,
-  rpName: config.RP_NAME,
-  origin: config.RP_ORIGIN
-});
+const getRPInfo = () => {
+  return {
+    rpID: config.RP_ID || 'localhost',
+    rpName: config.RP_NAME || 'Digital Identity Hub',
+    origin: config.RP_ORIGIN || 'http://localhost:3000'
+  };
+};
 
 // Generate registration options for passkey
 const generatePasskeyRegistrationOptions = async (req, res) => {
@@ -105,29 +110,27 @@ const generatePasskeyRegistrationOptions = async (req, res) => {
       throw new Error('Generated options missing challenge');
     }
 
-    // Store challenge in session
-    req.session.challenge = options.challenge;
-    req.session.userId = user._id.toString();
+    // Store challenge in temporary storage using user ID as key
+    const sessionKey = user._id.toString();
+    sessionStore.set(sessionKey, {
+      challenge: options.challenge,
+      userId: user._id.toString(),
+      timestamp: Date.now()
+    });
     
-    // Ensure session is saved before sending response
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => {
-        if (err) {
-          console.error('Session save error:', err);
-          reject(err);
-        } else {
-          console.log('Session updated and saved:', { 
-            challenge: options.challenge, 
-            userId: req.session.userId,
-            sessionId: req.session.id
-          });
-          resolve();
-        }
-      });
+    console.log('Session data stored in temporary storage:', { 
+      sessionKey,
+      challenge: options.challenge, 
+      userId: user._id.toString()
     });
 
-    // Add a small delay to ensure session is persisted
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Clean up old sessions (older than 5 minutes)
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    for (const [key, value] of sessionStore.entries()) {
+      if (value.timestamp < fiveMinutesAgo) {
+        sessionStore.delete(key);
+      }
+    }
 
     console.log('Passkey registration options generated successfully');
     res.json(options);
@@ -153,13 +156,28 @@ const verifyPasskeyRegistration = async (req, res) => {
       return res.status(400).json({ error: 'Credential is required' });
     }
 
+    // Get user from authentication token
+    const userId = req.user.id;
+    if (!userId) {
+      console.log('No user ID in token');
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // Try to get session data from temporary storage using user ID
+    const sessionKey = userId;
+    const sessionData = sessionStore.get(sessionKey);
+    
+    console.log('Looking for session data with key:', sessionKey);
+    console.log('Found session data:', sessionData);
+
     // Check if session data exists
-    if (!req.session.challenge || !req.session.userId) {
+    if (!sessionData || !sessionData.challenge || !sessionData.userId) {
       console.log('Missing session data:', { 
-        challenge: req.session.challenge ? 'Present' : 'Missing',
-        userId: req.session.userId ? 'Present' : 'Missing'
+        sessionData: !!sessionData,
+        challenge: sessionData?.challenge ? 'Present' : 'Missing',
+        userId: sessionData?.userId ? 'Present' : 'Missing'
       });
-      console.log('Full session object:', req.session);
+      console.log('Available session keys:', Array.from(sessionStore.keys()));
       return res.status(400).json({ 
         error: 'Session expired or invalid. Please try registering again.',
         code: 'SESSION_EXPIRED'
@@ -174,7 +192,7 @@ const verifyPasskeyRegistration = async (req, res) => {
     // Verify the registration response
     const verification = await verifyRegistrationResponse({
       response: credential,
-      expectedChallenge: req.session.challenge,
+      expectedChallenge: sessionData.challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
       requireUserVerification: false
@@ -227,7 +245,7 @@ const verifyPasskeyRegistration = async (req, res) => {
       
       // Save the passkey to database
       const passkey = new Passkey({
-        userId: req.session.userId,
+        userId: sessionData.userId,
         credentialID: credentialID,
         publicKey: publicKey,
         counter: counter,
@@ -235,11 +253,10 @@ const verifyPasskeyRegistration = async (req, res) => {
       });
 
       await passkey.save();
-      console.log('Passkey registered successfully for user:', req.session.userId);
+      console.log('Passkey registered successfully for user:', sessionData.userId);
       
-      // Clear session
-      delete req.session.challenge;
-      delete req.session.userId;
+      // Clear session data from temporary storage
+      sessionStore.delete(sessionKey);
 
       res.json({ success: true, message: 'Passkey registered successfully' });
     } else {
