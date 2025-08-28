@@ -34,16 +34,17 @@ app.use(bodyParser.json());
 // Session middleware
 app.use(session({
   secret: config.SESSION_SECRET,
-  resave: true, // Changed to true to ensure session is saved
+  resave: false, // Changed to false for better performance
   saveUninitialized: false,
   cookie: {
     secure: config.COOKIE_SECURE, // Use environment-based security
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax', // Added for better compatibility
+    sameSite: 'none', // Changed to 'none' for cross-origin requests
     domain: config.COOKIE_DOMAIN
   },
-  name: 'sid' // Explicit session name
+  name: 'sid', // Explicit session name
+  rolling: true // Extend session on each request
 }));
 
 // Initialize Passport
