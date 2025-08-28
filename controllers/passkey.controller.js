@@ -15,9 +15,6 @@ const getClientIP = (req) => {
     || 'Unknown IP';
 };
 
-// Temporary storage for session data (works better with serverless)
-const sessionStore = new Map();
-
 // Helper function to get rpID and origin
 const getRPInfo = () => {
   return {
@@ -25,6 +22,65 @@ const getRPInfo = () => {
     rpName: config.RP_NAME || 'Digital Identity Hub',
     origin: config.RP_ORIGIN || 'http://localhost:3000'
   };
+};
+
+// Helper function to create a unique challenge ID
+const generateChallengeId = () => {
+  return `challenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
+// Helper function to store challenge in database
+const storeChallenge = async (userId, challenge, type = 'registration') => {
+  const challengeId = generateChallengeId();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+  
+  // Store in database (you can create a separate Challenge model or use a simple approach)
+  // For now, we'll store it in the user document as a temporary field
+  await AuthUser.findByIdAndUpdate(userId, {
+    $set: {
+      tempChallenge: {
+        id: challengeId,
+        challenge: challenge,
+        type: type,
+        expiresAt: expiresAt
+      }
+    }
+  });
+  
+  return challengeId;
+};
+
+// Helper function to retrieve and validate challenge
+const getChallenge = async (userId, type = 'registration') => {
+  const user = await AuthUser.findById(userId);
+  if (!user || !user.tempChallenge) {
+    return null;
+  }
+  
+  const challengeData = user.tempChallenge;
+  
+  // Check if challenge is expired
+  if (new Date() > challengeData.expiresAt) {
+    // Clean up expired challenge
+    await AuthUser.findByIdAndUpdate(userId, {
+      $unset: { tempChallenge: 1 }
+    });
+    return null;
+  }
+  
+  // Check if challenge type matches
+  if (challengeData.type !== type) {
+    return null;
+  }
+  
+  return challengeData.challenge;
+};
+
+// Helper function to clear challenge
+const clearChallenge = async (userId) => {
+  await AuthUser.findByIdAndUpdate(userId, {
+    $unset: { tempChallenge: 1 }
+  });
 };
 
 // Generate registration options for passkey
@@ -110,27 +166,14 @@ const generatePasskeyRegistrationOptions = async (req, res) => {
       throw new Error('Generated options missing challenge');
     }
 
-    // Store challenge in temporary storage using user ID as key
-    const sessionKey = user._id.toString();
-    sessionStore.set(sessionKey, {
-      challenge: options.challenge,
-      userId: user._id.toString(),
-      timestamp: Date.now()
-    });
+    // Store challenge in database
+    const challengeId = await storeChallenge(user._id.toString(), options.challenge, 'registration');
     
-    console.log('Session data stored in temporary storage:', { 
-      sessionKey,
-      challenge: options.challenge, 
-      userId: user._id.toString()
+    console.log('Challenge stored in database:', { 
+      challengeId,
+      userId: user._id.toString(),
+      challenge: options.challenge
     });
-
-    // Clean up old sessions (older than 5 minutes)
-    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-    for (const [key, value] of sessionStore.entries()) {
-      if (value.timestamp < fiveMinutesAgo) {
-        sessionStore.delete(key);
-      }
-    }
 
     console.log('Passkey registration options generated successfully');
     res.json(options);
@@ -163,23 +206,19 @@ const verifyPasskeyRegistration = async (req, res) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    // Try to get session data from temporary storage using user ID
-    const sessionKey = userId;
-    const sessionData = sessionStore.get(sessionKey);
+    // Get challenge from database
+    const challenge = await getChallenge(userId, 'registration');
     
-    console.log('Looking for session data with key:', sessionKey);
-    console.log('Found session data:', sessionData);
+    console.log('Retrieved challenge from database:', { 
+      userId,
+      challenge: challenge ? 'Present' : 'Missing'
+    });
 
-    // Check if session data exists
-    if (!sessionData || !sessionData.challenge || !sessionData.userId) {
-      console.log('Missing session data:', { 
-        sessionData: !!sessionData,
-        challenge: sessionData?.challenge ? 'Present' : 'Missing',
-        userId: sessionData?.userId ? 'Present' : 'Missing'
-      });
-      console.log('Available session keys:', Array.from(sessionStore.keys()));
+    // Check if challenge exists
+    if (!challenge) {
+      console.log('No valid challenge found for user:', userId);
       return res.status(400).json({ 
-        error: 'Session expired or invalid. Please try registering again.',
+        error: 'Registration session expired or invalid. Please try registering again.',
         code: 'SESSION_EXPIRED'
       });
     }
@@ -192,7 +231,7 @@ const verifyPasskeyRegistration = async (req, res) => {
     // Verify the registration response
     const verification = await verifyRegistrationResponse({
       response: credential,
-      expectedChallenge: sessionData.challenge,
+      expectedChallenge: challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
       requireUserVerification: false
@@ -245,7 +284,7 @@ const verifyPasskeyRegistration = async (req, res) => {
       
       // Save the passkey to database
       const passkey = new Passkey({
-        userId: sessionData.userId,
+        userId: userId,
         credentialID: credentialID,
         publicKey: publicKey,
         counter: counter,
@@ -253,10 +292,10 @@ const verifyPasskeyRegistration = async (req, res) => {
       });
 
       await passkey.save();
-      console.log('Passkey registered successfully for user:', sessionData.userId);
+      console.log('Passkey registered successfully for user:', userId);
       
       // Clear session data from temporary storage
-      sessionStore.delete(sessionKey);
+      await clearChallenge(userId);
 
       res.json({ success: true, message: 'Passkey registered successfully' });
     } else {
@@ -330,9 +369,14 @@ const generatePasskeyAuthenticationOptions = async (req, res) => {
       userVerification: 'preferred'
     });
 
-    // Store challenge in session
-    req.session.challenge = options.challenge;
-    req.session.userId = user._id.toString();
+    // Store challenge in database
+    const challengeId = await storeChallenge(user._id.toString(), options.challenge, 'authentication');
+    
+    console.log('Authentication challenge stored in database:', { 
+      challengeId,
+      userId: user._id.toString(),
+      challenge: options.challenge
+    });
 
     console.log('Passkey authentication options generated successfully');
     res.json(options);
@@ -363,10 +407,26 @@ const verifyPasskeyAuthentication = async (req, res) => {
       return res.status(404).json({ error: 'Passkey not found' });
     }
 
+    // Get challenge from database
+    const challenge = await getChallenge(passkey.userId.toString(), 'authentication');
+    
+    console.log('Retrieved authentication challenge from database:', { 
+      userId: passkey.userId.toString(),
+      challenge: challenge ? 'Present' : 'Missing'
+    });
+
+    if (!challenge) {
+      console.log('No valid authentication challenge found for user:', passkey.userId.toString());
+      return res.status(400).json({ 
+        error: 'Authentication session expired. Please try logging in again.',
+        code: 'SESSION_EXPIRED'
+      });
+    }
+
     // Verify the authentication response
     const verification = await verifyAuthenticationResponse({
       response: credential,
-      expectedChallenge: req.session.challenge,
+      expectedChallenge: challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
       authenticator: {
@@ -414,9 +474,8 @@ const verifyPasskeyAuthentication = async (req, res) => {
         // Don't block login for history creation failure
       }
       
-      // Clear session
-      delete req.session.challenge;
-      delete req.session.userId;
+      // Clear challenge from database
+      await clearChallenge(passkey.userId.toString());
 
       res.json({
         success: true,
