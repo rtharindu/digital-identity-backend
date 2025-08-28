@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+// Define the tempChallenge subdocument schema
+const tempChallengeSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  challenge: { type: String, required: true },
+  type: { type: String, required: true, enum: ['registration', 'authentication'] },
+  expiresAt: { type: Date, required: true }
+}, { _id: false }); // Disable _id for subdocuments
+
 const authUserSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: { type: String, required: false }, // Optional for OAuth users
@@ -12,12 +20,7 @@ const authUserSchema = new mongoose.Schema({
   lastLogin: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-  tempChallenge: {
-    id: String,
-    challenge: String,
-    type: String,
-    expiresAt: Date
-  }
+  tempChallenge: tempChallengeSchema
 });
 
 // Update the updatedAt field on save
