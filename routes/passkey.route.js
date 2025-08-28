@@ -15,4 +15,7 @@ router.post('/authenticate/verify', passkeyController.verifyPasskeyAuthenticatio
 router.get('/user', authenticateToken, passkeyController.getUserPasskeys);
 router.delete('/user/:passkeyId', authenticateToken, passkeyController.deletePasskey);
 
+// Debug route (remove in production)
+router.get('/debug/challenge', authenticateToken, passkeyController.debugChallenge);
+
 module.exports = router;
