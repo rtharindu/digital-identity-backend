@@ -126,6 +126,9 @@ const generatePasskeyRegistrationOptions = async (req, res) => {
       });
     });
 
+    // Add a small delay to ensure session is persisted
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     console.log('Passkey registration options generated successfully');
     res.json(options);
   } catch (error) {
@@ -141,6 +144,8 @@ const verifyPasskeyRegistration = async (req, res) => {
     console.log('Verifying passkey registration');
     console.log('Request body:', req.body);
     console.log('Session data:', req.session);
+    console.log('Session ID:', req.sessionID);
+    console.log('Session cookie:', req.headers.cookie);
     
     const { credential } = req.body;
     if (!credential) {
@@ -154,6 +159,7 @@ const verifyPasskeyRegistration = async (req, res) => {
         challenge: req.session.challenge ? 'Present' : 'Missing',
         userId: req.session.userId ? 'Present' : 'Missing'
       });
+      console.log('Full session object:', req.session);
       return res.status(400).json({ 
         error: 'Session expired or invalid. Please try registering again.',
         code: 'SESSION_EXPIRED'
