@@ -32,11 +32,22 @@ const generateChallengeId = () => {
 // Helper function to store challenge in database
 const storeChallenge = async (userId, challenge, type = 'registration') => {
   const challengeId = generateChallengeId();
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
   
-  // Store in database (you can create a separate Challenge model or use a simple approach)
-  // For now, we'll store it in the user document as a temporary field
-  await AuthUser.findByIdAndUpdate(userId, {
+  console.log('Storing challenge in database:', {
+    userId,
+    challengeId,
+    challenge: challenge ? 'Present' : 'Missing',
+    type,
+    expiresAt
+  });
+  
+  // Ensure userId is a string for MongoDB query
+  const queryUserId = typeof userId === 'string' ? userId : userId.toString();
+  console.log('Query user ID for storage:', queryUserId);
+  
+  // Store in database
+  const result = await AuthUser.findByIdAndUpdate(queryUserId, {
     $set: {
       tempChallenge: {
         id: challengeId,
@@ -45,6 +56,20 @@ const storeChallenge = async (userId, challenge, type = 'registration') => {
         expiresAt: expiresAt
       }
     }
+  }, { new: true });
+  
+  console.log('Challenge storage result:', {
+    success: !!result,
+    userId: result?._id,
+    tempChallenge: result?.tempChallenge ? 'Present' : 'Missing'
+  });
+  
+  // Verify the challenge was stored correctly
+  const verificationUser = await AuthUser.findById(queryUserId);
+  console.log('Verification - Challenge stored correctly:', {
+    userId: verificationUser?._id,
+    hasTempChallenge: !!verificationUser?.tempChallenge,
+    challengeValue: verificationUser?.tempChallenge?.challenge ? 'Present' : 'Missing'
   });
   
   return challengeId;
@@ -52,15 +77,40 @@ const storeChallenge = async (userId, challenge, type = 'registration') => {
 
 // Helper function to retrieve and validate challenge
 const getChallenge = async (userId, type = 'registration') => {
-  const user = await AuthUser.findById(userId);
+  console.log('Retrieving challenge for user:', { userId, type });
+  console.log('User ID type:', typeof userId);
+  
+  // Ensure userId is a string for MongoDB query
+  const queryUserId = typeof userId === 'string' ? userId : userId.toString();
+  console.log('Query user ID:', queryUserId);
+  
+  const user = await AuthUser.findById(queryUserId);
+  console.log('User found:', { 
+    found: !!user, 
+    userId: user?._id,
+    hasTempChallenge: !!user?.tempChallenge,
+    tempChallengeData: user?.tempChallenge
+  });
+  
   if (!user || !user.tempChallenge) {
+    console.log('No user or tempChallenge found');
     return null;
   }
   
   const challengeData = user.tempChallenge;
+  console.log('Challenge data retrieved:', {
+    id: challengeData.id,
+    type: challengeData.type,
+    challenge: challengeData.challenge ? 'Present' : 'Missing',
+    challengeValue: challengeData.challenge,
+    challengeType: typeof challengeData.challenge,
+    expiresAt: challengeData.expiresAt,
+    isExpired: new Date() > challengeData.expiresAt
+  });
   
   // Check if challenge is expired
   if (new Date() > challengeData.expiresAt) {
+    console.log('Challenge expired, cleaning up');
     // Clean up expired challenge
     await AuthUser.findByIdAndUpdate(userId, {
       $unset: { tempChallenge: 1 }
@@ -70,17 +120,52 @@ const getChallenge = async (userId, type = 'registration') => {
   
   // Check if challenge type matches
   if (challengeData.type !== type) {
+    console.log('Challenge type mismatch:', { expected: type, actual: challengeData.type });
     return null;
   }
   
+  console.log('Challenge validation passed, returning challenge');
   return challengeData.challenge;
 };
 
 // Helper function to clear challenge
 const clearChallenge = async (userId) => {
-  await AuthUser.findByIdAndUpdate(userId, {
+  // Ensure userId is a string for MongoDB query
+  const queryUserId = typeof userId === 'string' ? userId : userId.toString();
+  await AuthUser.findByIdAndUpdate(queryUserId, {
     $unset: { tempChallenge: 1 }
   });
+};
+
+// Debug function to test challenge storage and retrieval
+const debugChallenge = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // Test storing a challenge
+    const testChallenge = 'test_challenge_' + Date.now();
+    const challengeId = await storeChallenge(userId, testChallenge, 'registration');
+    
+    // Test retrieving the challenge
+    const retrievedChallenge = await getChallenge(userId, 'registration');
+    
+    // Clean up
+    await clearChallenge(userId);
+    
+    res.json({
+      success: true,
+      stored: testChallenge,
+      retrieved: retrievedChallenge,
+      match: testChallenge === retrievedChallenge,
+      challengeId
+    });
+  } catch (error) {
+    console.error('Debug challenge error:', error);
+    res.status(500).json({ error: error.message });
+  }
 };
 
 // Generate registration options for passkey
@@ -156,6 +241,8 @@ const generatePasskeyRegistrationOptions = async (req, res) => {
     console.log('WebAuthn options generated successfully');
     console.log('Generated options:', {
       challenge: options.challenge ? 'Present' : 'Missing',
+      challengeValue: options.challenge,
+      challengeType: typeof options.challenge,
       rp: options.rp,
       user: options.user,
       pubKeyCredParams: options.pubKeyCredParams?.length || 0
@@ -167,12 +254,14 @@ const generatePasskeyRegistrationOptions = async (req, res) => {
     }
 
     // Store challenge in database
+    // The challenge from WebAuthn is already in base64url format, so we can store it directly
     const challengeId = await storeChallenge(user._id.toString(), options.challenge, 'registration');
     
     console.log('Challenge stored in database:', { 
       challengeId,
       userId: user._id.toString(),
-      challenge: options.challenge
+      challenge: options.challenge,
+      challengeType: typeof options.challenge
     });
 
     console.log('Passkey registration options generated successfully');
@@ -206,12 +295,18 @@ const verifyPasskeyRegistration = async (req, res) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    console.log('User ID from token:', userId);
+    console.log('User ID type:', typeof userId);
+    console.log('Full user object from token:', req.user);
+
     // Get challenge from database
     const challenge = await getChallenge(userId, 'registration');
     
     console.log('Retrieved challenge from database:', { 
       userId,
-      challenge: challenge ? 'Present' : 'Missing'
+      challenge: challenge ? 'Present' : 'Missing',
+      challengeValue: challenge,
+      challengeType: typeof challenge
     });
 
     // Check if challenge exists
@@ -227,6 +322,15 @@ const verifyPasskeyRegistration = async (req, res) => {
     console.log('RP Info for verification:', { rpID, origin });
 
     console.log('Starting WebAuthn verification...');
+    console.log('Verification parameters:', {
+      expectedChallenge: challenge,
+      expectedChallengeType: typeof challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID
+    });
+    
+    // The challenge should be in base64url format for WebAuthn verification
+    console.log('Credential challenge from client:', credential.response.clientDataJSON);
     
     // Verify the registration response
     const verification = await verifyRegistrationResponse({
@@ -562,5 +666,6 @@ module.exports = {
   generatePasskeyAuthenticationOptions,
   verifyPasskeyAuthentication,
   getUserPasskeys,
-  deletePasskey
+  deletePasskey,
+  debugChallenge
 };
