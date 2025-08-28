@@ -11,7 +11,13 @@ const authUserSchema = new mongoose.Schema({
   isEmailVerified: { type: Boolean, default: false },
   lastLogin: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  tempChallenge: {
+    id: String,
+    challenge: String,
+    type: String,
+    expiresAt: Date
+  }
 });
 
 // Update the updatedAt field on save
