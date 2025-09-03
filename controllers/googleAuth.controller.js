@@ -165,10 +165,10 @@ const handleGoogleCallback = (req, res, next) => {
         // Don't block login for history creation failure
       }
 
-      // Create device session
-      try {
-        const screen = `${req.headers['user-agent'] ? 'Unknown' : 'Unknown'}x${req.headers['user-agent'] ? 'Unknown' : 'Unknown'}`;
-        const location = "Google OAuth Login";
+              // Create device session
+        try {
+          const screen = 'UnknownxUnknown'; // Default screen resolution
+          const location = "Google OAuth Login";
         
         await fetch(`${process.env.BACKEND_URL || ''}/api/login`, {
           method: "POST",
