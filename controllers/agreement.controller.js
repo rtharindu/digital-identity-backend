@@ -100,6 +100,11 @@ exports.createAgreement = async (req, res) => {
   try {
     const now = new Date();
     const agreementId = uuidv4();
+    
+    // Safely extract and validate relatedParty for audit
+    const relatedPartyId = req.body.relatedParty?.[0]?.id;
+    const validAuditBy = relatedPartyId && isValidUUID(relatedPartyId) ? relatedPartyId : 'system';
+    
     const newAgreement = new Agreement({
       id: agreementId,
       href: `${BASE_URL}/${agreementId}`,
@@ -110,7 +115,7 @@ exports.createAgreement = async (req, res) => {
       audit: [{
         timestamp: now,
         action: 'created',
-        by: req.body.relatedParty?.[0]?.id || 'system'
+        by: validAuditBy
       }]
     });
     const savedAgreement = await newAgreement.save();
@@ -182,8 +187,8 @@ exports.updateAgreement = async (req, res) => {
     agreement.updatedDate = now;
     
     // Safely add audit entry with validated data
-    const auditBy = req.body.relatedParty?.[0]?.id;
-    const validAuditBy = auditBy && isValidUUID(auditBy) ? auditBy : 'system';
+    const relatedPartyId = req.body.relatedParty?.[0]?.id;
+    const validAuditBy = relatedPartyId && isValidUUID(relatedPartyId) ? relatedPartyId : 'system';
     
     agreement.audit.push({
       timestamp: now,
