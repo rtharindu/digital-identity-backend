@@ -9,7 +9,6 @@ exports.searchUsers = async (req, res) => {
     const { 
       searchTerm, 
       role, 
-      status, 
       page = 1, 
       limit = 10,
       sortBy = 'createdAt',
