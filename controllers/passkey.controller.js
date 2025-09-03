@@ -26,7 +26,7 @@ const getRPInfo = () => {
 
 // Helper function to create a unique challenge ID
 const generateChallengeId = () => {
-  return `challenge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `challenge_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 };
 
 // Helper function to store challenge in database
@@ -373,8 +373,9 @@ const verifyPasskeyRegistration = async (req, res) => {
         throw new Error('Invalid public key format');
       }
       
-      if (typeof counter !== 'number' || counter < 0) {
-        counter = 0; // Default to 0 if invalid
+      let finalCounter = counter;
+      if (typeof finalCounter !== 'number' || finalCounter < 0) {
+        finalCounter = 0; // Default to 0 if invalid
       }
       
       console.log('Data validation passed, proceeding to save passkey');
@@ -391,7 +392,7 @@ const verifyPasskeyRegistration = async (req, res) => {
         userId: userId,
         credentialID: credentialID,
         publicKey: publicKey,
-        counter: counter,
+        counter: finalCounter,
         transports: transports
       });
 
