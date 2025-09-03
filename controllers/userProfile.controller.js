@@ -83,7 +83,7 @@ exports.updateProfile = async (req, res) => {
 
     if (filteredUpdates.phone && filteredUpdates.phone.length > 0) {
       // Basic phone validation
-      const phoneRegex = /^[\+]?[0-9\s\-\(\)]{7,20}$/;
+      const phoneRegex = /^[+]?[0-9\s\-()]{7,20}$/;
       if (!phoneRegex.test(filteredUpdates.phone)) {
         return res.status(400).json({ message: 'Invalid phone number format' });
       }
