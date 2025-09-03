@@ -148,17 +148,27 @@ exports.getAllAgreements = async (req, res) => {
     // Sanitize and validate all query parameters
     const sanitizedParams = sanitizeQueryParams(req.query);
     
-    // Build query object with only sanitized values
+    // Use a predefined, secure query structure with explicit field mapping
     const query = {};
-    if (sanitizedParams.status) query.status = sanitizedParams.status;
-    if (sanitizedParams.agreementType) query.agreementType = sanitizedParams.agreementType;
-    if (sanitizedParams.engagedPartyId) {
+    
+    // Explicitly map only allowed fields with predefined patterns
+    if (sanitizedParams.status && ['in process', 'active', 'suspended', 'terminated'].includes(sanitizedParams.status)) {
+      query.status = sanitizedParams.status;
+    }
+    
+    if (sanitizedParams.agreementType && /^[a-zA-Z0-9\s\-_.]+$/.test(sanitizedParams.agreementType)) {
+      query.agreementType = sanitizedParams.agreementType;
+    }
+    
+    if (sanitizedParams.engagedPartyId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sanitizedParams.engagedPartyId)) {
       query.engagedParty = { $elemMatch: { id: sanitizedParams.engagedPartyId } };
     }
 
+    // Execute query with validated parameters
     const agreements = await Agreement.find(query)
       .skip(sanitizedParams.offset)
       .limit(sanitizedParams.limit);
+      
     res.json(agreements);
   } catch (err) {
     res.status(500).json({ message: 'Internal server error', error: err.message });
