@@ -34,34 +34,83 @@ const validatePartyArray = (parties) => {
   return validParties.length > 0 ? validParties : null;
 };
 
+// Helper function to ensure parameter type safety
+const ensureStringType = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null; // Reject objects, arrays, and other complex types
+};
+
+// Helper function to ensure number type safety
+const ensureNumberType = (value, min = 0, max = Infinity) => {
+  if (value === null || value === undefined) return null;
+  const num = parseInt(value);
+  if (isNaN(num)) return null;
+  return Math.max(min, Math.min(max, num));
+};
+
+// Helper function to validate query object for malicious operators
+const validateQueryObject = (query) => {
+  const allowedOperators = ['$elemMatch'];
+  const allowedFields = ['status', 'agreementType', 'engagedParty'];
+  
+  // Check if query contains any unexpected fields
+  for (const field of Object.keys(query)) {
+    if (!allowedFields.includes(field)) {
+      throw new Error(`Invalid query field: ${field}`);
+    }
+    
+    // Check if field value contains malicious operators
+    const value = query[field];
+    if (typeof value === 'object' && value !== null) {
+      for (const operator of Object.keys(value)) {
+        if (!allowedOperators.includes(operator)) {
+          throw new Error(`Invalid query operator: ${operator}`);
+        }
+      }
+    }
+  }
+  
+  return query;
+};
+
 // Sanitize and validate query parameters
 const sanitizeQueryParams = (params) => {
+  // Ensure params is an object and extract with defaults
+  if (!params || typeof params !== 'object') {
+    return { offset: 0, limit: 20 };
+  }
+  
   const { status, engagedPartyId, agreementType, offset = 0, limit = 20 } = params;
   
-  // Validate and sanitize status
+  // Use helper functions to ensure type safety and prevent NoSQL injection
+  const sanitizedStatus = ensureStringType(status);
+  const sanitizedAgreementType = ensureStringType(agreementType);
+  const sanitizedEngagedPartyId = ensureStringType(engagedPartyId);
+  const sanitizedOffset = ensureNumberType(offset, 0, 10000); // Max 10k offset
+  const sanitizedLimit = ensureNumberType(limit, 1, 100); // Max 100 items per page
+  
+  // Additional validation for status - only allow predefined values
   const validStatuses = ['in process', 'active', 'suspended', 'terminated'];
-  const sanitizedStatus = validStatuses.includes(status) ? status : null;
+  const finalStatus = validStatuses.includes(sanitizedStatus) ? sanitizedStatus : null;
   
-  // Validate and sanitize agreementType (allow only alphanumeric and basic punctuation)
-  const sanitizedAgreementType = agreementType && isValidAgreementType(agreementType) 
-    ? agreementType.trim() 
+  // Additional validation for agreementType - only allow safe patterns
+  const finalAgreementType = sanitizedAgreementType && isValidAgreementType(sanitizedAgreementType) 
+    ? sanitizedAgreementType 
     : null;
   
-  // Validate and sanitize engagedPartyId (UUID format)
-  const sanitizedEngagedPartyId = engagedPartyId && isValidUUID(engagedPartyId) 
-    ? engagedPartyId 
+  // Additional validation for engagedPartyId - only allow valid UUID format
+  const finalEngagedPartyId = sanitizedEngagedPartyId && isValidUUID(sanitizedEngagedPartyId) 
+    ? sanitizedEngagedPartyId 
     : null;
-  
-  // Validate and sanitize pagination parameters
-  const sanitizedOffset = Math.max(0, parseInt(offset) || 0);
-  const sanitizedLimit = Math.min(100, Math.max(1, parseInt(limit) || 20));
   
   return {
-    status: sanitizedStatus,
-    engagedPartyId: sanitizedEngagedPartyId,
-    agreementType: sanitizedAgreementType,
-    offset: sanitizedOffset,
-    limit: sanitizedLimit
+    status: finalStatus,
+    engagedPartyId: finalEngagedPartyId,
+    agreementType: finalAgreementType,
+    offset: sanitizedOffset || 0,
+    limit: sanitizedLimit || 20
   };
 };
 
@@ -148,24 +197,35 @@ exports.getAllAgreements = async (req, res) => {
     // Sanitize and validate all query parameters
     const sanitizedParams = sanitizeQueryParams(req.query);
     
-    // Use a predefined, secure query structure with explicit field mapping
+    // Build query object with explicit, safe field assignments only
+    // This prevents NoSQL injection by ensuring only validated, safe values are used
     const query = {};
     
-    // Explicitly map only allowed fields with predefined patterns
-    if (sanitizedParams.status && ['in process', 'active', 'suspended', 'terminated'].includes(sanitizedParams.status)) {
+    // Status: Only allow predefined enum values (already validated in sanitizeQueryParams)
+    if (sanitizedParams.status) {
       query.status = sanitizedParams.status;
     }
     
-    if (sanitizedParams.agreementType && /^[a-zA-Z0-9\s\-_.]+$/.test(sanitizedParams.agreementType)) {
+    // AgreementType: Only allow validated string patterns (already validated in sanitizeQueryParams)
+    if (sanitizedParams.agreementType) {
       query.agreementType = sanitizedParams.agreementType;
     }
     
-    if (sanitizedParams.engagedPartyId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sanitizedParams.engagedPartyId)) {
-      query.engagedParty = { $elemMatch: { id: sanitizedParams.engagedPartyId } };
+    // EngagedPartyId: Only allow valid UUID format with safe query structure
+    // The UUID is already validated in sanitizeQueryParams, so we can safely use it
+    if (sanitizedParams.engagedPartyId) {
+      query.engagedParty = { 
+        $elemMatch: { 
+          id: sanitizedParams.engagedPartyId 
+        } 
+      };
     }
 
-    // Execute query with validated parameters
-    const agreements = await Agreement.find(query)
+    // Validate the final query object to ensure no malicious operators are present
+    const validatedQuery = validateQueryObject(query);
+    
+    // Execute query with validated parameters - all values are now guaranteed to be safe strings/numbers
+    const agreements = await Agreement.find(validatedQuery)
       .skip(sanitizedParams.offset)
       .limit(sanitizedParams.limit);
       
