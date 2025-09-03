@@ -11,6 +11,29 @@ const ALLOWED_UPDATE_FIELDS = [
   'relatedParty'
 ];
 
+// Helper function to validate UUID format
+const isValidUUID = (uuid) => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+};
+
+// Helper function to validate agreement type
+const isValidAgreementType = (type) => {
+  return typeof type === 'string' && /^[a-zA-Z0-9\s\-_.]+$/.test(type);
+};
+
+// Helper function to validate party array
+const validatePartyArray = (parties) => {
+  if (!Array.isArray(parties)) return null;
+  
+  const validParties = parties.filter(party => 
+    party && typeof party === 'object' && 
+    party.id && isValidUUID(party.id)
+  );
+  
+  return validParties.length > 0 ? validParties : null;
+};
+
 // Sanitize and validate query parameters
 const sanitizeQueryParams = (params) => {
   const { status, engagedPartyId, agreementType, offset = 0, limit = 20 } = params;
@@ -20,13 +43,12 @@ const sanitizeQueryParams = (params) => {
   const sanitizedStatus = validStatuses.includes(status) ? status : null;
   
   // Validate and sanitize agreementType (allow only alphanumeric and basic punctuation)
-  const sanitizedAgreementType = agreementType && /^[a-zA-Z0-9\s\-_\.]+$/.test(agreementType) 
+  const sanitizedAgreementType = agreementType && isValidAgreementType(agreementType) 
     ? agreementType.trim() 
     : null;
   
   // Validate and sanitize engagedPartyId (UUID format)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const sanitizedEngagedPartyId = engagedPartyId && uuidRegex.test(engagedPartyId) 
+  const sanitizedEngagedPartyId = engagedPartyId && isValidUUID(engagedPartyId) 
     ? engagedPartyId 
     : null;
   
@@ -49,27 +71,21 @@ const sanitizeUpdateData = (data) => {
   
   // Only allow updates to permitted fields
   ALLOWED_UPDATE_FIELDS.forEach(field => {
-    if (data[field] !== undefined) {
-      if (field === 'status') {
-        const validStatuses = ['in process', 'active', 'suspended', 'terminated'];
-        if (validStatuses.includes(data[field])) {
-          sanitized[field] = data[field];
-        }
-      } else if (field === 'agreementType') {
-        if (typeof data[field] === 'string' && /^[a-zA-Z0-9\s\-_\.]+$/.test(data[field])) {
-          sanitized[field] = data[field].trim();
-        }
-      } else if (field === 'engagedParty' || field === 'relatedParty') {
-        if (Array.isArray(data[field])) {
-          // Validate each party object has a valid ID
-          const validParties = data[field].filter(party => 
-            party && typeof party === 'object' && 
-            party.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(party.id)
-          );
-          if (validParties.length > 0) {
-            sanitized[field] = validParties;
-          }
-        }
+    if (data[field] === undefined) return;
+    
+    if (field === 'status') {
+      const validStatuses = ['in process', 'active', 'suspended', 'terminated'];
+      if (validStatuses.includes(data[field])) {
+        sanitized[field] = data[field];
+      }
+    } else if (field === 'agreementType') {
+      if (isValidAgreementType(data[field])) {
+        sanitized[field] = data[field].trim();
+      }
+    } else if (field === 'engagedParty' || field === 'relatedParty') {
+      const validParties = validatePartyArray(data[field]);
+      if (validParties) {
+        sanitized[field] = validParties;
       }
     }
   });
@@ -110,8 +126,7 @@ exports.createAgreement = async (req, res) => {
 exports.getAgreementById = async (req, res) => {
   try {
     // Validate that the ID parameter is a valid UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(req.params.id)) {
+    if (!isValidUUID(req.params.id)) {
       return res.status(400).json({ message: 'Invalid agreement ID format' });
     }
     
@@ -148,8 +163,7 @@ exports.getAllAgreements = async (req, res) => {
 exports.updateAgreement = async (req, res) => {
   try {
     // Validate that the ID parameter is a valid UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(req.params.id)) {
+    if (!isValidUUID(req.params.id)) {
       return res.status(400).json({ message: 'Invalid agreement ID format' });
     }
 
@@ -169,7 +183,7 @@ exports.updateAgreement = async (req, res) => {
     
     // Safely add audit entry with validated data
     const auditBy = req.body.relatedParty?.[0]?.id;
-    const validAuditBy = auditBy && uuidRegex.test(auditBy) ? auditBy : 'system';
+    const validAuditBy = auditBy && isValidUUID(auditBy) ? auditBy : 'system';
     
     agreement.audit.push({
       timestamp: now,
@@ -187,8 +201,7 @@ exports.updateAgreement = async (req, res) => {
 exports.deleteAgreement = async (req, res) => {
   try {
     // Validate that the ID parameter is a valid UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(req.params.id)) {
+    if (!isValidUUID(req.params.id)) {
       return res.status(400).json({ message: 'Invalid agreement ID format' });
     }
     
