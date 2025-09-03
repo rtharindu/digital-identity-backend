@@ -24,6 +24,12 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
+    // Validate role parameter
+    const allowedRoles = ['user', 'admin'];
+    if (role && !allowedRoles.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role specified. Allowed roles: user, admin' });
+    }
+
     const existing = await AuthUser.findOne({ email });
     if (existing) {
       return res.status(409).json({ message: 'Email already registered.' });
@@ -87,23 +93,31 @@ exports.login = async (req, res) => {
 
 // Public wrapper for role-based registration
 exports.registerUser = async (req, res) => {
-  req.body.role = 'user';
+  // Set role to hardcoded value instead of using req.body.role
+  const sanitizedReq = { ...req.body, role: 'user' };
+  req.body = sanitizedReq;
   return exports.register(req, res);
 };
 
 exports.registerAdmin = async (req, res) => {
-  req.body.role = 'admin';
+  // Set role to hardcoded value instead of using req.body.role
+  const sanitizedReq = { ...req.body, role: 'admin' };
+  req.body = sanitizedReq;
   return exports.register(req, res);
 };
 
 // Public wrapper for role-based login
 exports.loginUser = async (req, res) => {
-  req.body._expectedRole = 'user';
+  // Set expected role to hardcoded value instead of using req.body._expectedRole
+  const sanitizedReq = { ...req.body, _expectedRole: 'user' };
+  req.body = sanitizedReq;
   return exports.loginWithRole(req, res);
 };
 
 exports.loginAdmin = async (req, res) => {
-  req.body._expectedRole = 'admin';
+  // Set expected role to hardcoded value instead of using req.body._expectedRole
+  const sanitizedReq = { ...req.body, _expectedRole: 'admin' };
+  req.body = sanitizedReq;
   return exports.loginWithRole(req, res);
 };
 
@@ -111,6 +125,13 @@ exports.loginAdmin = async (req, res) => {
 exports.loginWithRole = async (req, res) => {
   try {
     const { email, password, _expectedRole } = req.body;
+    
+    // Validate that _expectedRole is one of the allowed values
+    const allowedRoles = ['user', 'admin'];
+    if (!allowedRoles.includes(_expectedRole)) {
+      return res.status(400).json({ message: 'Invalid role specified' });
+    }
+    
     const ip = getClientIP(req);
     console.log('[LoginWithRole] Attempt for:', email, 'Role:', _expectedRole, 'IP:', ip);
 
